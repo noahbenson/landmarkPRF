@@ -96,6 +96,18 @@ end
 function genRetinotopyStimulus(imgs, stimSize, stimDegPerPx, ...
                                framesPerSecond, maxEccen, outfile)
     fprintf('Generating Retinotopy Masks...\n');
+    masks = genRetinotopyMasks(stimSize, stimDegPerPx, ...
+                               maxEccen, framesPerSecond, 30, 20);
+    % We also need a few pauses.
+    blank15s = zeros([1,15*framesPerSecond], 'uint32');
+    blank25s = zeros([1,25*framesPerSecond], 'uint32');
+    % Now, make the images.
+    seq = cat(2, blank15s, 1:size(masks, 3), blank25s);
+    makeSeq(imgs, masks*255, seq, stimSize, framesPerSecond, outfile);
+end
+function masks = genRetinotopyMasks(stimSize, stimDegPerPx, ...
+                                    maxEccen, framesPerSecond, ...
+                                    secPerWR, secPerBar)
     u = linspace(-stimSize/2, stimSize/2, stimSize) * stimDegPerPx;
     [cols, rows] = meshgrid(u, u);
     tht = atan2(-rows, cols);
@@ -105,7 +117,7 @@ function genRetinotopyStimulus(imgs, stimSize, stimDegPerPx, ...
     % (1) Clockwise (30 s) and Counterclockwse (30 s)
     th0 = 0;
     thWidth = pi/2;
-    nframesAng = 30*framesPerSecond;
+    nframesAng = secPerWR*framesPerSecond;
     masksCCW = zeros([stimSize, stimSize, nframesAng], 'uint8');
     for ii = 1:nframesAng
         % Clockwise:
@@ -117,7 +129,7 @@ function genRetinotopyStimulus(imgs, stimSize, stimDegPerPx, ...
     % (2) Expanding (30 s) and Contracting (30 s).
     %     We grow the ring to half / contract it to half then start moving
     %     the inner bound out / outer bound in.
-    nframesEcc = 30*framesPerSecond;
+    nframesEcc = secPerWR*framesPerSecond;
     masksEXP = zeros([stimSize, stimSize, nframesEcc], 'uint8');
     for ii = 1:nframesEcc
         frac = (ii-1) / (nframesEcc - 1);
@@ -136,7 +148,7 @@ function genRetinotopyStimulus(imgs, stimSize, stimDegPerPx, ...
     masksCON = flip(masksEXP, 3);
     % (3) Left-Right and Right-Left bars; we use a similar strategy as the
     %     eccentricity mapping, but we will fill only 1/4 of the screen.
-    nframesBar = 20*framesPerSecond;
+    nframesBar = secPerBar*framesPerSecond;
     masksLR = zeros([stimSize, stimSize, nframesBar], 'uint8');
     for ii = 1:nframesBar
         x1 = maxEccen * (2.5 * ii/nframesBar - 1);
@@ -155,12 +167,6 @@ function genRetinotopyStimulus(imgs, stimSize, stimDegPerPx, ...
                 masksCCW, masksDU, ...
                 masksLR,  masksCW, ...
                 masksUD,  masksEXP);
-    % We also need a few pauses.
-    blank15s = zeros([1,15*framesPerSecond], 'uint32');
-    blank25s = zeros([1,25*framesPerSecond], 'uint32');
-    % Now, make the images.
-    seq = cat(2, blank15s, 1:size(masks, 3), blank25s);
-    makeSeq(imgs, masks*255, seq, stimSize, framesPerSecond, outfile);
 end
 function mask = genWedgeMask(theta_im, ecclim, theta, width)
     mask = ecclim & (abs(mod(theta_im - theta - pi, 2*pi) - pi) < width);
@@ -183,59 +189,70 @@ function genLandmarkStimulus(imgs, stimSize, stimDegPerPx, ...
     vrt = hrz';
     ecc = hypot(cols, rows);
     ecclim = (ecc <= maxEccen);
-    % We want these eccentricities and these polar angles:
-    wedgeWidths = [pi/16, pi/8, pi/4];
-    wrMasks = zeros([stimSize, stimSize, 15], 'uint8');
-    mx = wedgeWidths(1)/2;
-    wrMasks(:,:,1) = (vrt < mx) & ecclim;
-    wrMasks(:,:,2) = (hrz < mx) & ecclim;
-    mx = wedgeWidths(2)/2;
-    wrMasks(:,:,3) = (vrt < mx) & ecclim;
-    wrMasks(:,:,4) = (hrz < mx) & ecclim;
-    mx = wedgeWidths(3)/2;
-    wrMasks(:,:,5) = (vrt < mx) & ecclim;
-    wrMasks(:,:,6) = (hrz < mx) & ecclim;
-
-    rings = {[0 0.5; 3.75 4.75; 7.5 8];
-             [0 1;   3.5  4.5;  7   8];
-             [0 2;   3    5;    6   8]};
-    for ii = 1:3
-        i0 = 3*(ii - 1) + 6;
-        rr = rings{ii};
-        wrMasks(:,:,1+i0) = (ecc >= rr(1,1)) & (ecc < rr(1,2));
-        wrMasks(:,:,2+i0) = (ecc >= rr(2,1)) & (ecc < rr(2,2));
-        wrMasks(:,:,3+i0) = (ecc >= rr(3,1)) & (ecc < rr(3,2));
-    end
+    % We need to generate three experiments:
+    % (1) fast retinotopy
+    % (2) landmarks
+    % (3) subdivisions
+    % (4, 5, 6) repeat the above
+    % Each is separated by 20 seconds with 15 seconds at the start
+    % and 25 seconds at the end of the experiment (2:20 of blank).
+    % Each experiment lasts 30 seconds (3:00 of experiment).
+    % Start with retinotopy: we use the above function...
+    ret_masks = genRetinotopyMasks(stimSize, stimDegPerPx, ...
+                                   maxEccen, framesPerSecond, 4.5, 3);
+    ret_seq = 1:size(ret_masks,3);
+    % Landmarks next;
     % The wrMasks are:
-    % 1: vertical meridian,   ±pi/8
-    % 2: horizontal meridian, ±pi/8
-    % 3: vertical meridian,   ±pi/4
-    % 4: horizontal meridian, ±pi/4
-    % 5: vertical meridian,   ±pi/2
-    % 6: horizontal meridian, ±pi/2
-    % 7: ring:  0-0.5°
-    % 8: ring:  3.75°-4.25°
-    % 9: ring:  7.5°-8°
-    % 10: ring: 0°-1°
-    % 11: ring: 3.5°-4.5°
-    % 12: ring: 7°-8°
-    % 13: ring: 0°-2°
-    % 14: ring: 3°-5°
-    % 15: ring: 6°-8°
-
+    % 1: vertical meridian,   ±pi/16
+    % 2: horizontal meridian, ±pi/16
+    % 3: ring:  0-0.5°
+    % 4: ring:  3.75°-4.25°
+    % 5: ring:  7.5°-8°
+    wedgeWidth = pi/16;
+    wr_masks = zeros([stimSize, stimSize, 5], 'uint8');
+    wr_masks(:,:,1) = (vrt < wedgeWidth/2) & ecclim;
+    wr_masks(:,:,2) = (hrz < wedgeWidth/2) & ecclim;
+    rr = [0 0.5; 3.75 4.75; 7.5 8];
+    wr_masks(:,:,3) = (ecc >= rr(1,1)) & (ecc < rr(1,2));
+    wr_masks(:,:,4) = (ecc >= rr(2,1)) & (ecc < rr(2,2));
+    wr_masks(:,:,5) = (ecc >= rr(3,1)) & (ecc < rr(3,2));
+    seq_long = ones([1, 4*framesPerSecond], 'int32');
+    seq_shrt = zeros([1, 2.5*framesPerSecond], 'int32');
+    wr_seq = cat(2, ...
+                 1*seq_long, seq_shrt, 2*seq_long, seq_shrt, ...
+                 3*seq_long, seq_shrt, 4*seq_long, seq_shrt, ...
+                 5*seq_long);
+    % Now, make the subdivisions:
+    % They are 2 sec on, 2 sec off.
+    sub_masks = zeros([stimSize, stimSize, 8], 'uint8');
+    sub_masks(:,:,1) = (mod(tht, pi) <  pi/2) & ecclim;
+    sub_masks(:,:,2) = (mod(tht, pi) >= pi/2) & ecclim;
+    sub_masks(:,:,3) = (mod(tht, pi/2) <  pi/4) & ecclim;
+    sub_masks(:,:,4) = (mod(tht, pi/2) >= pi/4) & ecclim;
+    sub_masks(:,:,5) = (ecc <  maxEccen/2);
+    sub_masks(:,:,6) = (ecc >= maxEccen/2) & ecclim;
+    sub_masks(:,:,7) = (mod(ecc, maxEccen/2) <  maxEccen/4) & ecclim;
+    sub_masks(:,:,8) = (mod(ecc, maxEccen/2) >= maxEccen/4) & ecclim;
+    seq_2s = ones([1, 2*framesPerSecond], 'int32');
+    sub_seq = cat(2, ...
+                  1*seq_2s, 0*seq_2s, 2*seq_2s, 0*seq_2s, ...
+                  3*seq_2s, 0*seq_2s, 4*seq_2s, 0*seq_2s, ...
+                  5*seq_2s, 0*seq_2s, 6*seq_2s, 0*seq_2s, ...
+                  7*seq_2s, 0*seq_2s, 8*seq_2s, 0*seq_2s);
     % Now make the stimulus!
-    pauseFrames = zeros(1, 20*framesPerSecond, 'int32');
-    ones4s = ones(1, 4*framesPerSecond, 'int32');
-    zero4s = zeros(1, 4*framesPerSecond, 'int32');
-    seq = cat(2, ...
-        pauseFrames, ...
-        7*ones4s, zero4s, 1*ones4s, zero4s, 8*ones4s, zero4s, 2*ones4s, zero4s, 9*ones4s, ...
-        pauseFrames, ...
-        10*ones4s, zero4s, 3*ones4s, zero4s, 11*ones4s, zero4s, 4*ones4s, zero4s, 12*ones4s, ...
-        pauseFrames, ...
-        13*ones4s, zero4s, 5*ones4s, zero4s, 14*ones4s, zero4s, 6*ones4s, zero4s, 15*ones4s, ...
-        pauseFrames);
-    makeSeq(imgs, wrMasks*255, seq, stimSize, framesPerSecond, outfile);
+    ii = wr_seq > 0;
+    wr_seq(ii) = wr_seq(ii) + size(ret_masks, 3);
+    ii = sub_seq > 0;
+    sub_seq(ii) = sub_seq(ii) + size(ret_masks, 3) + size(wr_masks, 3);
+    seq_15s = zeros([1, 15*framesPerSecond], 'int32');
+    seq_25s = zeros([1, 15*framesPerSecond], 'int32');
+    seq_20s = zeros([1, 15*framesPerSecond], 'int32');
+    seq = [seq_15s ...
+           ret_seq seq_20s wr_seq seq_20s sub_seq seq_20s ...
+           ret_seq seq_20s wr_seq seq_20s sub_seq ...
+           seq_25s];
+    masks = cat(3, ret_masks, wr_masks, sub_masks);
+    makeSeq(imgs, masks*255, seq, stimSize, framesPerSecond, outfile);
 end
 
 % Load the HCP Stimulus
