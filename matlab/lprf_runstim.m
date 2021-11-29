@@ -1,4 +1,4 @@
-function runStimulus()
+function lprf_runstim()
 % Runs either the retinotopy experiment ("retinotopy") or the on-off wedge
 % and ring experiment ("landmarks").
 
@@ -16,6 +16,9 @@ params.skipSyncTests   = true;
 params.doEyelink       = false;
 params.eyelinkIP       = '100.1.1.1';
 params.quitProgKey     = 113; % 'q' key.
+% If you want to save as a movie:
+%params.movie = '/Users/nben/Desktop/retinotopy_stim.mov';
+
 % These might not be necessary on all systems; for slower systems (i.e.,
 % nben's MacBook Air), these are necessary to prevent Matlab from missing
 % screen flips.

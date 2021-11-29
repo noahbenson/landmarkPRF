@@ -1,4 +1,4 @@
-function genStimulus(varargin)
+function lprf_genstim(varargin)
 %% Generate the Retinotopy Stimulus for VistaDisp using the HCP stimulus.
 %  This script generates the stimulus, as understood by the vistadisp
 %  repository (https://github.com/noahbenson/vistadisp), for retinotopic
